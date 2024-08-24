@@ -4,13 +4,14 @@ import threading
 import requests
 
 from telebot import types
-from bs4 import BeautifulSoup as BS
 from datetime import datetime, timedelta
+from bs4 import BeautifulSoup as BS
+
 
 from code.db import Database
 from code.menu_handler import *
 from code.config import get_telegram_token
-from code.schedule import init_schedule_ptk, get_schedule_ptk, init_send_schedule
+from code.schedule import init_list_groups, init_schedule, get_schedule_ptk
 
 STATE_MAIN_MENU = 'main_menu'
 STATE_SELECTING_LOCATION = 'selecting_location'
@@ -30,56 +31,7 @@ update_lock = threading.Lock()
 days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 
 user_context = {}
-group = []
-
-def init_list_group(first_group_number, college, list_group):
-    course = 1
-    for num_group in list_group:
-        temp = int(num_group) // 1000
-        if (first_group_number != temp):
-            course += 1
-            first_group_number = temp
-
-        Database.execute_query(f"INSERT INTO groups_students_{college} (group_course, group_id) VALUES (%s, %s)"
-                               , (course, num_group))
-
-
-def init_list_groups(soup):
-    substring_ptk = "/npe/files/_timetable/ptk/"
-    substring_pedcol = "/npe/files/_timetable/pedcol/"
-    substring_medcol = "/npe/files/_timetable/medcol/"
-    substring_spour = "/npe/files/_timetable/spour/"
-    substring_spoinpo = "/npe/files/_timetable/spoinpo/"
-    
-    list_group_ptk, list_group_pedcol, list_group_medcol = [], [], []
-    list_group_spour, list_group_spoinpo = [], []
-    
-    list_groups = soup.find_all('a')
-    for element in list_groups:
-        if substring_ptk in str(element) and '_' not in element.get_text(): 
-            list_group_ptk.append(element.get_text())
-        elif substring_pedcol in str(element) and '_' not in element.get_text():
-            list_group_pedcol.append(element.get_text())
-        elif substring_medcol in str(element) and '_' not in element.get_text():
-            list_group_medcol.append(element.get_text())
-        elif substring_spour in str(element) and '_' not in element.get_text():
-            list_group_spour.append(element.get_text())
-        elif substring_spoinpo in str(element) and ('_' and 'o' not in element.get_text()):
-            list_group_spoinpo.append(element.get_text())
-            
-    first_group_number = int(list_group_ptk[0]) // 1000
-    while first_group_number > 9:
-        first_group_number %= 10
-    init_list_group(first_group_number, 'ptk', list_group_ptk)
-    init_list_group(first_group_number, 'pedcol', list_group_pedcol)
-    init_list_group(first_group_number, 'medcol', list_group_medcol)
-    init_list_group(first_group_number, 'spour', list_group_spour)
-    init_list_group(first_group_number, 'spoinpo', list_group_spoinpo)
-
-def init_get_list_group(college):
-    temp = Database.execute_query(f'SELECT group_id FROM groups_students_{college}', fetch=True)
-    for item in temp:
-        group.append(item[0])
+groups = []
 
 @bot.message_handler(commands=['start'])
 def main_menu(message):
@@ -95,7 +47,7 @@ def handle_all_messages(message):
     if update_lock.locked():
         bot.send_message(message.chat.id, "Сейчас происходит обновление расписания, прошу подождать пару минут (^._.^)~")
     else:
-        global group, group_student, week_type, college
+        global groups, group_student, week_type, college
         
         if message.chat.id not in user_context:
             user_context[message.chat.id] = {'state': STATE_MAIN_MENU}
@@ -123,11 +75,16 @@ def handle_all_messages(message):
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SELECTING_SCHEDULE: {
-                'ПТК': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ptk'),
-                'СПО ИНПО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spoinpo'),
-                'Мед.колледж': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'medcol'),
-                'СПО ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'pedcol'),
-                'СПО ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spour'),
+                'ИЭИС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ieis'),
+                'ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'itseus'),
+                'ПИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'pi'),
+                'ИБХИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ibhi'),
+                'ИГУМ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'igum'),
+                'ИМО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'imo'),
+                'ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'iur'),
+                'ИПТ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ipt'),
+                'ПТИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'pti'),
+                'Назад': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SELECTING_COURSE: {
@@ -141,13 +98,13 @@ def handle_all_messages(message):
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SELECTING_GROUP: {
-                **{grp: lambda msg, group=grp: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, group) for grp in group},
+                **{grp: lambda msg, group=grp: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, group) for grp in groups},
                 'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, user_data.get('college')),
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SELECTING_WEEK_TYPE: {
                 'Верхняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Верхняя'),
-                'Нижняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Нижняя'),
+                'Нижняя': lambda  msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Нижняя'),
                 'Назад': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),  
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
@@ -157,11 +114,15 @@ def handle_all_messages(message):
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SETTINGS_SELECTING_COLLEGE: {
-                'ПТК': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'ptk'),
-                'СПО ИНПО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'spoinpo'),
-                'Мед.колледж': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'medcol'),
-                'СПО ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'pedcol'),
-                'СПО ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'spour'),
+                'ИЭИС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'ieis'),
+                'ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'itseus'),
+                'ПИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'pi'),
+                'ИБХИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'ibhi'),
+                'ИГУМ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'igum'),
+                'ИМО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'imo'),
+                'ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'iur'),
+                'ИПТ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'ipt'),
+                'ПТИ': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, 'pti'),
                 'Назад': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
@@ -176,7 +137,7 @@ def handle_all_messages(message):
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
             STATE_SETTINGS_SELECTING_GROUP: {
-                **{grp: lambda msg, group=grp: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_TIME, save_group_settings, group) for grp in group},
+                **{grp: lambda msg, groups=grp: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_TIME, save_group_settings, groups) for grp in groups},
                 'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SETTINGS_SELECTING_COURSE, handle_select_course, user_data.get('college')),
                 'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
             },
@@ -203,26 +164,7 @@ def bot_send_location_and_message(bot, message, latitude, longitude, str):
 
 def fetch_group_ids(college, group_list):
     temp = Database.execute_query(f'SELECT group_id FROM groups_students_{college}', fetch=True)
-    
-    for item in temp:
-        group_list.append(item[0])
-
-def init_schedule(soup):
-    for number_group in group:
-        link = soup.find('a', string=number_group)  
-        if (link):
-            link_href = link['href']
-            file_url = f"https://portal.novsu.ru/{link_href}"
-            response = requests.get(file_url)
-            print(number_group)
-            
-            Database.rebuild_group_table(number_group)
-            
-            for day in days:
-                schedule = init_schedule_ptk(number_group, day, response.content)
-                if schedule != []:
-                    init_send_schedule(schedule, number_group, day, "Верхняя")
-                    init_send_schedule(schedule, number_group, day, "Нижняя")
+    group_list.extend([item[0] for item in temp])
 
 def update_checked_field_notifications(user_id, college, user_group, checked, notification_time):
     query = '''
@@ -236,6 +178,7 @@ def update_checked_field_notifications(user_id, college, user_group, checked, no
             time_notification = EXCLUDED.time_notification;
     '''
     Database.execute_query(query, (user_id, college, user_group, checked, notification_time))
+
 
 def send_notifications():
     
@@ -288,32 +231,25 @@ def send_notifications():
 
 def update_database():
     print("Обновление базы данных начато")
+    global groups
+    group = []
     
-    url = 'https://portal.novsu.ru/univer/timetable/spo/'
+    url = 'https://portal.novsu.ru/univer/timetable/ochn/'
     
     response = requests.get(url)
     html = response.text
-
     soup = BS(html, 'html.parser')
     
     Database.rebuild_db()
 
-    init_list_groups(soup)
-
-    init_get_list_group('ptk')
-    init_get_list_group('pedcol')
-    init_get_list_group('medcol')
-    init_get_list_group('spour')
-    init_get_list_group('spoinpo')
-                    
-    fetch_group_ids('ptk', group)
-    fetch_group_ids('pedcol', group)
-    fetch_group_ids('medcol', group)
-    fetch_group_ids('spour', group)
-    fetch_group_ids('spoinpo', group)
-    
-    init_schedule(soup)
-    
+    institute_names = init_list_groups(soup)
+    institute_names = ["pti"]
+    for institute in institute_names:
+        fetch_group_ids(institute, group)
+        init_schedule(soup, institute, group)
+        for group_id in group:
+            groups.append(group_id)
+        group = []
     print("Обновление базы данных завершено") 
                     
 def update_thread():    

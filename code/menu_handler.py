@@ -23,13 +23,18 @@ def handle_location(bot, message, latitude, longitude, location_message):
 
 def handle_schedule_request(bot, message):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    item_PTK = types.KeyboardButton('ПТК')
-    item_MED = types.KeyboardButton('Мед.колледж')
-    item_EKO = types.KeyboardButton('СПО ИЦЭУС')
-    item_IUR = types.KeyboardButton('СПО ИЮР')
-    item_PED = types.KeyboardButton('СПО ИНПО')
+    item_IEIS = types.KeyboardButton('ИЭИС')
+    item_ITZEUS = types.KeyboardButton('ИЦЭУС')
+    item_PI = types.KeyboardButton('ПИ')
+    item_IBHI = types.KeyboardButton('ИБХИ')
+    item_IGUM = types.KeyboardButton('ИГУМ')
+    item_IMO = types.KeyboardButton('ИМО')
+    item_IUR = types.KeyboardButton('ИЮР')
+    item_IPT = types.KeyboardButton('ИПТ')
+    item_PTI = types.KeyboardButton('ПТИ')
+    
     item_main = types.KeyboardButton('Главное меню')
-    markup_replay.add(item_PTK, item_PED, item_IUR, item_MED, item_EKO).add(item_main)
+    markup_replay.add(item_IEIS, item_ITZEUS, item_PI, item_IBHI, item_IGUM, item_IMO, item_IUR, item_IPT, item_PTI).add(item_main)
     bot.send_message(message.chat.id, '🏫Какой колледж вас интересует?', reply_markup=markup_replay)
 
 def handle_college_selection(bot, user_context, message, college_code):
