@@ -3,6 +3,7 @@ import time
 import threading
 import requests
 
+from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup as BS
@@ -193,13 +194,13 @@ def send_notifications():
                 delta = timedelta(hours=24)
             else:
                 delta = timedelta(hours=14)
+                
             next_check_time = (now + delta).replace(minute=0, second=0, microsecond=0)
             users_notifications = Database.execute_query(
                 'SELECT user_id, college, user_group, time_notification FROM users_notifications WHERE checked = true',
                 fetch=True
             )
             for user_id, college, user_group, notification_time in users_notifications:
-                # print(f'User {user_id} has unchecked')
                 update_checked_field_notifications(user_id, college, user_group, False, notification_time)
             
         else:
@@ -213,7 +214,6 @@ def send_notifications():
 
             
             for user_id, college, user_group, notification_time in users_notifications:
-                # print(f'User {user_id} has notification time set to {notification_time}')
                 
                 group = user_group
                 week_type = 'Верхняя' if datetime.now().isocalendar()[1] % 2 == 1 else 'Нижняя'
@@ -229,8 +229,22 @@ def send_notifications():
             
         time.sleep((next_check_time - datetime.now()).total_seconds() - 100)
 
+def process_institute(institute):
+    print(f"thread {institute}")
+    local_groups = []
+    fetch_group_ids(institute, local_groups)
+    init_schedule(institute, local_groups)
+    
+    with groups_lock:
+        groups.extend(local_groups)
+    
+    print(f"thread {institute}")
+
 def update_database():
     print("Обновление базы данных начато")
+    
+    start_time = time.time()
+
     global groups
     group = []
     
@@ -243,14 +257,16 @@ def update_database():
     Database.rebuild_db()
 
     institute_names = init_list_groups(soup)
-    institute_names = ["pti"]
-    for institute in institute_names:
-        fetch_group_ids(institute, group)
-        init_schedule(soup, institute, group)
-        for group_id in group:
-            groups.append(group_id)
-        group = []
-    print("Обновление базы данных завершено") 
+    global groups_lock
+    groups_lock = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        executor.map(process_institute, institute_names)
+    
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    print(f"Обновление базы данных завершено за {elapsed_time:.2f} секунд")
                     
 def update_thread():    
     while True:

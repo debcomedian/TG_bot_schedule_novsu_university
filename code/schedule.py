@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 
+from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup as BS
 from transliterate import translit
 
@@ -22,9 +23,9 @@ def parse_institutes_data(data):
     for course_data in courses:
         course_data = course_data.replace('Группы:', '').strip()
         course_parts = course_data.split(',')
-        if len(course_parts) > 1:  # Проверяем, есть ли данные после разделителя
+        if len(course_parts) > 1:
             course_info = course_parts[0].split(':')
-            if len(course_info) > 1:  # Проверяем, есть ли разделитель ":"
+            if len(course_info) > 1:
                 course_number = course_info[1].strip()
                 groups = course_parts[1:]
                 for group_id in groups:
@@ -53,7 +54,6 @@ def init_list_group(institude, data):
     """
     Database.execute_query(create_table_query)
 
-    # Вставка данных
     for course_number, group_id, link in parsed_data:
         insert_query = f"""
         INSERT INTO groups_students_{institude} 
@@ -69,8 +69,7 @@ def init_list_groups(soup):
 
     institutes = {}
     current_institute = None
-    current_data = []
-    institute_names = []
+    current_data, institute_names = [], []
     
     for table in tables:
         th = table.find('th')
@@ -123,11 +122,10 @@ def format_time_range(time_string):
         char = time_string[i]
         part += char
 
-        # Определяем, нужно ли добавить этот отрезок времени в список
         if len(part) == 5:
             time_parts.append(part)
             part = ""
-        elif len(part) == 4 and int(part[0]) > 2:  # Если первая цифра больше 2, значит, это некорректное время
+        elif len(part) == 4 and int(part[0]) > 2:  
             time_parts.append(part)
             part = ""
 
@@ -137,18 +135,28 @@ def format_time_range(time_string):
         return f"{time_parts[0]}-{time_parts[-1]}"
     elif len(time_parts) == 1:
         return time_parts[0]
-    else:
-        return "Нет данных"
+    return "Нет данных"
 
 def parse_schedule_entry(entry, previous_entry=None):
+    
     if previous_entry and len(entry) > 0 and not entry[0]:
-        # Используем предыдущее время, если текущее время пустое
         time = previous_entry["time"]
         subgroup = entry[0] if len(entry) > 0 else previous_entry["subgroup"]
         subject = entry[1] if len(entry) > 1 else previous_entry["subject"]
         teacher = entry[2] if len(entry) > 2 else previous_entry["teacher"]
         room = entry[3] if len(entry) > 3 else previous_entry["room"]
         comments = entry[4] if len(entry) > 4 else previous_entry["comments"]
+
+        if subject == previous_entry["subject"]:
+            week_type = parse_week_type(comments)
+            if week_type is None:
+                if previous_entry["comments"] != comments:
+                    previous_entry["comments"] += "; " + comments
+                return previous_entry, True
+
+        if teacher == 'Проектный день':
+            return None, False
+
     else:
         time = format_time_range(entry[0]) if len(entry) > 0 and entry[0] else "Нет данных"
         subgroup = entry[1] if len(entry) > 1 else ""
@@ -164,7 +172,7 @@ def parse_schedule_entry(entry, previous_entry=None):
         "teacher": teacher,
         "room": room,
         "comments": comments
-    }
+    }, False
 
 def print_schedule(schedule):
     for day, entries in schedule.items():
@@ -180,9 +188,8 @@ def print_schedule(schedule):
                 continue
             seen_entries.add(entry_tuple)
 
-            previous_entry = entry_dict  # Сохраняем текущую запись для следующей итерации
+            previous_entry = entry_dict
 
-            # Печать информации
             print('Время:', entry_dict["time"] if entry_dict["time"] else "Нет данных")
             print('Подгруппа:', entry_dict["subgroup"])
             print('Предмет:', entry_dict["subject"])
@@ -208,58 +215,60 @@ def format_schedule_entry(entry_dict):
         f"📝Аудитория: {entry_dict['room']}\n"
         f"📝Комментарий: {entry_dict['comments']}\n"
     )
+    
+def insert_schedule_in_group_table(day, week_type, schedule_data, group):
+    schedule_str = "\n".join(schedule_data)
+    insert_query = f"""
+    INSERT INTO group_{group} 
+    (week_day, group_week_type, group_data) 
+    VALUES (%s, %s, %s)
+    """
+    params = (day, week_type, schedule_str)
+    Database.execute_query(insert_query, params)
 
 def save_schedule_to_db(group, schedule):
     for day, entries in schedule.items():
         seen_entries = set()
-        previous_entry = None
-        day_schedule_upper = []
-        day_schedule_lower = []
+        previous_entry, previous_index = None, None
+        day_schedule_upper, day_schedule_lower = [], []
 
         for entry in entries:
-            entry_dict = parse_schedule_entry(entry, previous_entry)
+            entry_dict, should_remove_previous = parse_schedule_entry(entry, previous_entry)
+
+            if entry_dict is None:
+                continue
+
+            if should_remove_previous and previous_index is not None:
+                if day_schedule_upper and 0 <= previous_index < len(day_schedule_upper):
+                    day_schedule_upper.pop(previous_index)
+                if day_schedule_lower and 0 <= previous_index < len(day_schedule_lower):
+                    day_schedule_lower.pop(previous_index)
+            
             entry_tuple = tuple(entry_dict.values())
 
             if entry_tuple in seen_entries:
                 continue
             seen_entries.add(entry_tuple)
 
-            previous_entry = entry_dict  # Сохраняем текущую запись для следующей итерации
+            previous_entry = entry_dict  
+            previous_index = len(day_schedule_upper) - 1
 
-            # Формируем данные для сохранения
             formatted_entry = format_schedule_entry(entry_dict)
 
-            # Определяем тип недели и распределяем записи по верхней или нижней неделе
             week_type = parse_week_type(entry_dict['comments'])
-            if week_type == 1:  # Верхняя неделя
+            if week_type == 1:
                 day_schedule_upper.append(formatted_entry)
-            elif week_type == 0:  # Нижняя неделя
+            elif week_type == 0:
                 day_schedule_lower.append(formatted_entry)
-            else:  # Если неделя не указана, сохраняем в обе недели
+            else:
                 day_schedule_upper.append(formatted_entry)
                 day_schedule_lower.append(formatted_entry)
 
-        # Сохраняем расписание для верхней недели
         if day_schedule_upper:
-            upper_schedule_str = "\n".join(day_schedule_upper)
-            insert_query = f"""
-            INSERT INTO group_{group} 
-            (week_day, group_week_type, group_data) 
-            VALUES (%s, %s, %s)
-            """
-            params = (day, True, upper_schedule_str)
-            Database.execute_query(insert_query, params)
-
-        # Сохраняем расписание для нижней недели
+            insert_schedule_in_group_table(day, week_type, day_schedule_upper, group)
         if day_schedule_lower:
-            lower_schedule_str = "\n".join(day_schedule_lower)
-            insert_query = f"""
-            INSERT INTO group_{group} 
-            (week_day, group_week_type, group_data) 
-            VALUES (%s, %s, %s)
-            """
-            params = (day, False, lower_schedule_str)
-            Database.execute_query(insert_query, params)
+            insert_schedule_in_group_table(day, week_type, day_schedule_lower, group)
+
 
 def get_group_link(institute, group):
     
@@ -271,39 +280,44 @@ def get_group_link(institute, group):
         link += result[0][0]
     else:
         print(f"No link found for group_id {group} in institute {institute}")
-
     return link
 
-def init_schedule(soup, institute, groups):
-    for group in groups:
-        Database.rebuild_group_table(group)
-        
-        link = get_group_link(institute, group)
-        response = requests.get(link)
-        html = response.text
-        soup = BS(html, 'html.parser')
-        table = soup.find('table', {'class': 'shedultable'})
+def process_group(institute, group):
+    Database.rebuild_group_table(group)
+    
+    link = get_group_link(institute, group)
+    response = requests.get(link)
+    html = response.text
+    soup = BS(html, 'html.parser')
+    table = soup.find('table', {'class': 'shedultable'})
 
-        if table is None:
-            print("Таблица не найдена на странице.")
+    if table is None:
+        print(f"Таблица не найдена на странице {link}.")
+        return
+    
+    schedule = {}
+    current_day = None
+
+    for row in table.find_all('tr'):
+        row_data = [cell.get_text(strip=True) for cell in row.find_all(['td', 'th'])]
+        if len(row_data) == 0:
+            print(f"Строка не найдена на странице {link}.")
             continue
-        
-        schedule = {}
-        current_day = None
+        if row_data[0] in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']:
+            current_day = row_data[0]
+            if current_day not in schedule:
+                schedule[current_day] = []
+            if len(row_data) > 1:
+                schedule[current_day].append(row_data[1:])
+        else:
+            if current_day:
+                schedule[current_day].append(row_data)
 
-        for row in table.find_all('tr'):
-            row_data = [cell.get_text(strip=True) for cell in row.find_all(['td', 'th'])]
+    save_schedule_to_db(group, schedule)
 
-            if row_data[0] in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']:
-                # Новый день недели
-                current_day = row_data[0]
-                if current_day not in schedule:
-                    schedule[current_day] = []
-                if len(row_data) > 1:  # Если в строке есть и дата, и данные расписания
-                    schedule[current_day].append(row_data[1:])
-            else:
-                # Это продолжение расписания для текущего дня
-                if current_day:
-                    schedule[current_day].append(row_data)
+def init_schedule(institute, groups):
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(process_group, institute, group) for group in groups]
 
-        save_schedule_to_db(group, schedule)
+    for future in futures:
+        future.result()
