@@ -62,21 +62,28 @@ def init_list_group(institude, data):
         """
         Database.execute_query(insert_query, (course_number, group_id, link))
 
+def fetch_institute_names(url, prefix=""):
+    response = requests.get(url)
+    html = response.text
+    soup = BS(html, 'html.parser')
+    
+    institutes = init_list_groups(soup, prefix)
+    return institutes
 
-
-def init_list_groups(soup):
+def init_list_groups(soup, prefix=""):
     tables = soup.find_all('table', class_='viewtable')
 
     institutes = {}
     current_institute = None
-    current_data, institute_names = [], []
+    current_data = []
+    institute_names = []
     
     for table in tables:
         th = table.find('th')
         if th:
             if current_institute:
                 institutes[current_institute] = '| '.join(current_data)
-            current_institute = translit(th.text.strip(), 'ru', reversed=True).lower()
+            current_institute = prefix + translit(th.text.strip(), 'ru', reversed=True).lower()
             current_data = []
         else:
             trs = table.find_all('tr')

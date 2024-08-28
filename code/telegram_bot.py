@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup as BS
 from code.db import Database
 from code.menu_handler import *
 from code.config import get_telegram_token
-from code.schedule import init_list_groups, init_schedule, get_schedule_ptk
+from code.schedule import fetch_institute_names, init_schedule, get_schedule_ptk
 
 STATE_MAIN_MENU = 'main_menu'
 STATE_SELECTING_LOCATION = 'selecting_location'
@@ -246,17 +246,17 @@ def update_database():
     start_time = time.time()
 
     global groups
-    group = []
     
-    url = 'https://portal.novsu.ru/univer/timetable/ochn/'
-    
-    response = requests.get(url)
-    html = response.text
-    soup = BS(html, 'html.parser')
+    url_ochn = 'https://portal.novsu.ru/univer/timetable/ochn/'
+    url_zaoch = 'https://portal.novsu.ru/univer/timetable/zaochn/'
     
     Database.rebuild_db()
 
-    institute_names = init_list_groups(soup)
+    ochn_institute_names = fetch_institute_names(url_ochn)
+    zaoch_institute_names = fetch_institute_names(url_zaoch, prefix="zaoch_")
+
+    institute_names = ochn_institute_names + zaoch_institute_names
+    
     global groups_lock
     groups_lock = threading.Lock()
 
