@@ -21,7 +21,26 @@ def handle_location(bot, message, latitude, longitude, location_message):
     bot.send_location(message.chat.id, latitude, longitude)
     bot.send_message(message.chat.id, location_message)
 
+def handle_schedule_request_no_session(bot, message):
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item_ochn = types.KeyboardButton('Очное')
+    item_zaoch = types.KeyboardButton('Заочное')
+    item_main = types.KeyboardButton('Главное меню')
+    
+    markup_replay.add(item_ochn, item_zaoch).add(item_main)
+    bot.send_message(message.chat.id, '📚 Выберите форму обучения', reply_markup=markup_replay)
+
 def handle_schedule_request(bot, message):
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item_ochn = types.KeyboardButton('Очное')
+    item_zaoch = types.KeyboardButton('Заочное')
+    item_session = types.KeyboardButton('Сессия')
+    item_main = types.KeyboardButton('Главное меню')
+    
+    markup_replay.add(item_ochn, item_zaoch, item_session).add(item_main)
+    bot.send_message(message.chat.id, '📚 Выберите форму обучения', reply_markup=markup_replay)
+
+def handle_education_form_selection(bot, message):    
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
     item_IEIS = types.KeyboardButton('ИЭИС')
     item_ITZEUS = types.KeyboardButton('ИЦЭУС')
@@ -32,39 +51,45 @@ def handle_schedule_request(bot, message):
     item_IUR = types.KeyboardButton('ИЮР')
     item_IPT = types.KeyboardButton('ИПТ')
     item_PTI = types.KeyboardButton('ПТИ')
-    
+    item_back = types.KeyboardButton('Назад')
     item_main = types.KeyboardButton('Главное меню')
-    markup_replay.add(item_IEIS, item_ITZEUS, item_PI, item_IBHI, item_IGUM, item_IMO, item_IUR, item_IPT, item_PTI).add(item_main)
+    markup_replay.add(item_IEIS, item_ITZEUS, item_PI, item_IBHI, item_IGUM, item_IMO, item_IUR, item_IPT, item_PTI).add(item_back).add(item_main)
     bot.send_message(message.chat.id, '🏫Какой колледж вас интересует?', reply_markup=markup_replay)
 
-def handle_college_selection(bot, user_context, message, college_code):
-    user_context[message.chat.id]['college'] = college_code
-    markup_replay = generate_course_menu(college_code)
+def handle_institute_selection(bot, user_context, message, institute_code):
+    form = user_context[message.chat.id].get('form', '')
+    
+    institute_with_form = f'{form}_{institute_code}' if form else institute_code
+
+    user_context[message.chat.id]['institute'] = institute_code
+    
+    markup_replay = generate_course_menu(institute_with_form)
     bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
 
 def handle_course_selection(bot, user_context, message, course, show_groups):
     current_context = user_context.get(message.chat.id, {})
-    current_context['course'] = course
-    selected_college = current_context.get('college')
-    if selected_college == 'ptk':
+    user_context[message.chat.id]['course'] = course
+    selected_institute = current_context.get('institute')
+    if selected_institute == 'ptk':
         show_groups(message, 'groups_students_ptk')
-    elif selected_college == 'spoinpo':
+    elif selected_institute == 'spoinpo':
         show_groups(message, 'groups_students_spoinpo')
 
-def handle_show_groups(bot, user_context, user_data, message, next_state):
+def handle_show_groups(bot, user_context, message, next_state):
     user_context[message.chat.id]['state'] = next_state
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
     if message.text[0].isdigit():
-        user_data['course'] = message.text[0]  
-        user_context[message.chat.id] = user_data
+        user_context[message.chat.id]['course'] = message.text[0]  
     
-    course = user_data.get('course')
-    college = user_data.get('college')
+    form = user_context[message.chat.id].get('form')
+    course = user_context[message.chat.id].get('course') 
+    institute = user_context[message.chat.id].get('institute') if form is None else f"{form}_{user_context[message.chat.id].get('institute')}"
+    
     
     conn = Database.get_connection()
     try:
-        temp = Database.execute_query("SELECT group_id FROM groups_students_{} WHERE group_course=%s".format(college), (course,), fetch=True)
+        temp = Database.execute_query("SELECT group_id FROM groups_students_{} WHERE group_course=%s".format(institute), (course,), fetch=True)
         
         temp_items = []
         for item in temp:
@@ -128,21 +153,25 @@ def handle_transition_no_context(bot, user_context, message, next_state, handler
     user_context[message.chat.id]['state'] = next_state
     handler(bot, message, *args)
 
-def handle_select_college(bot, message):
-    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    item_ptk = types.KeyboardButton('ПТК')
-    item_spoinpo = types.KeyboardButton('СПО ИНПО')
-    item_medcol = types.KeyboardButton('Мед.колледж')
-    item_pedcol = types.KeyboardButton('СПО ИЦЭУС')
-    item_spour = types.KeyboardButton('СПО ИЮР')
-    item_back = types.KeyboardButton('Назад')
-    markup_replay.add(item_ptk, item_spoinpo, item_medcol, item_pedcol, item_spour, item_back)
-    bot.send_message(message.chat.id, 'Выберите колледж', reply_markup=markup_replay)
+# def handle_select_institute(bot, message):
+#     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+#     item_ptk = types.KeyboardButton('ПТК')
+#     item_spoinpo = types.KeyboardButton('СПО ИНПО')
+#     item_medcol = types.KeyboardButton('Мед.колледж')
+#     item_pedcol = types.KeyboardButton('СПО ИЦЭУС')
+#     item_spour = types.KeyboardButton('СПО ИЮР')
+#     item_back = types.KeyboardButton('Назад')
+#     markup_replay.add(item_ptk, item_spoinpo, item_medcol, item_pedcol, item_spour, item_back)
+#     bot.send_message(message.chat.id, 'Выберите колледж', reply_markup=markup_replay)
+    
+def handle_select_institute_with_form(bot, user_context, message, form):
+    user_context[message.chat.id]['form'] = form
+    handle_education_form_selection(bot, message)
 
-def handle_select_course(bot, user_context, message, college):
-    user_context[message.chat.id]['college'] = college
-    markup_replay = generate_course_menu(college)
-    bot.send_message(message.chat.id, 'Выберите курс', reply_markup=markup_replay)
+# def handle_select_course(bot, user_context, message, institute):
+#     user_context[message.chat.id]['institute'] = institute
+#     markup_replay = generate_course_menu(institute)
+#     bot.send_message(message.chat.id, 'Выберите курс', reply_markup=markup_replay)
     
 def handle_reset_settings(bot, message):
     Database.execute_query(f"DELETE FROM users_notifications WHERE user_id = {message.chat.id}")
@@ -172,28 +201,30 @@ def save_notification_time(bot, user_context, message, time_notification, state)
     user_id = message.chat.id
     user_data = user_context.get(user_id, {})
 
-    college = user_data.get('college')
+    form = user_data.get('form')
+    
+    institute = user_data.get('institute') if form is None else f"{form}_{user_data.get('institute')}"
     user_group = user_data.get('group')
 
     query = '''
-        INSERT INTO users_notifications (user_id, college, user_group, checked, time_notification)
+        INSERT INTO users_notifications (user_id, institute, user_group, checked, time_notification)
         VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (user_id)
             DO UPDATE SET 
-            college = EXCLUDED.college,
+            institute = EXCLUDED.institute,
             user_group = EXCLUDED.user_group,
             checked = EXCLUDED.checked,
             time_notification = EXCLUDED.time_notification;
     '''
-    Database.execute_query(query, (user_id, college, user_group, False, time_notification[:2]))
+    Database.execute_query(query, (user_id, institute, user_group, False, time_notification[:2]))
 
     user_context[user_id]['state'] = state
     bot.send_message(user_id, f'Настройки обновлены')
     handle_main_menu(bot, message)
     
-def generate_course_menu(college):
+def generate_course_menu(institute):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    course_list = sorted(fetch_college_courses(college))
+    course_list = sorted(fetch_institute_courses(institute))
     
     for course in course_list:
         markup_replay.add(types.KeyboardButton(f'{course} курс'))
@@ -203,8 +234,8 @@ def generate_course_menu(college):
     markup_replay.add(item_back).add(item_main)
     return markup_replay
 
-def fetch_college_courses(college):
-    temp = Database.execute_query(f'SELECT DISTINCT group_course FROM groups_students_{college}', fetch=True)
+def fetch_institute_courses(institute):
+    temp = Database.execute_query(f'SELECT DISTINCT group_course FROM groups_students_{institute}', fetch=True)
     course_list = []
     
     for item in temp:

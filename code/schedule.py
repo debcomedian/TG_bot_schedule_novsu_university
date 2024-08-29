@@ -139,7 +139,8 @@ def format_time_range(time_string):
         i += 1
 
     if len(time_parts) > 1:
-        return f"{time_parts[0]}-{time_parts[-1]}"
+        modified_time_part = time_parts[-1][:-2] + "45"
+        return f"{time_parts[0]}-{modified_time_part}"
     elif len(time_parts) == 1:
         return time_parts[0]
     return "Нет данных"
@@ -209,9 +210,9 @@ def print_schedule(schedule):
 
 def parse_week_type(comments):
     if "верх." in comments.lower():
-        return 1
+        return True
     elif "нижн." in comments.lower():
-        return 0
+        return False
     return None
 
 def format_schedule_entry(entry_dict):
@@ -234,11 +235,15 @@ def insert_schedule_in_group_table(day, week_type, schedule_data, group):
     Database.execute_query(insert_query, params)
 
 def save_schedule_to_db(group, schedule):
+    # print(group)
+    # print(schedule)
+    # print()
     for day, entries in schedule.items():
         seen_entries = set()
-        previous_entry, previous_index = None, None
-        day_schedule_upper, day_schedule_lower = [], []
-
+        previous_entry = None
+        previous_index = None
+        day_schedule_upper = []
+        day_schedule_lower = []
         for entry in entries:
             entry_dict, should_remove_previous = parse_schedule_entry(entry, previous_entry)
 
@@ -272,14 +277,16 @@ def save_schedule_to_db(group, schedule):
                 day_schedule_lower.append(formatted_entry)
 
         if day_schedule_upper:
-            insert_schedule_in_group_table(day, week_type, day_schedule_upper, group)
+            insert_schedule_in_group_table(day, True, day_schedule_upper, group)
         if day_schedule_lower:
-            insert_schedule_in_group_table(day, week_type, day_schedule_lower, group)
+            insert_schedule_in_group_table(day, False, day_schedule_lower, group)
 
 
 def get_group_link(institute, group):
-    
-    link = "https://portal.novsu.ru/univer/timetable/ochn/i.1103357/?page=EditViewGroup&instId="
+    if "зо" in group:
+        link = "https://portal.novsu.ru/univer/timetable/zaochn/i.1103358/?page=EditViewGroup"
+    else:
+        link = "https://portal.novsu.ru/univer/timetable/ochn/i.1103357/?page=EditViewGroup"
     
     result = Database.execute_query(f"SELECT link from groups_students_{institute} WHERE group_id = '{group}'", fetch=True)
 
@@ -290,6 +297,7 @@ def get_group_link(institute, group):
     return link
 
 def process_group(institute, group):
+    
     Database.rebuild_group_table(group)
     
     link = get_group_link(institute, group)
@@ -299,7 +307,7 @@ def process_group(institute, group):
     table = soup.find('table', {'class': 'shedultable'})
 
     if table is None:
-        print(f"Таблица не найдена на странице {link}.")
+        print(f"Таблица группы {group} не найдена на странице {link}.")
         return
     
     schedule = {}
