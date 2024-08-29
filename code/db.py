@@ -40,8 +40,8 @@ class Database:
                 END LOOP; 
             END; 
             $$;
-            CREATE TABLE IF NOT EXISTS users_notifications (user_id BIGINT NOT NULL PRIMARY KEY, college VARCHAR(7) NOT NULL, checked BOOLEAN NOT NULL, 
-                                                            user_group SMALLINT NOT NULL, time_notification VARCHAR(2) NOT NULL);
+            CREATE TABLE IF NOT EXISTS users_notifications (user_id BIGINT NOT NULL PRIMARY KEY, institute VARCHAR(13) NOT NULL, checked BOOLEAN NOT NULL, 
+                                                            user_group VARCHAR(7) NOT NULL, time_notification VARCHAR(2) NOT NULL);
         '''
         Database.execute_query(query)
         
